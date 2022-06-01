@@ -324,6 +324,8 @@ int main()
 #include <memory>
 #include <atomic>
 
+#include "optick.h"
+
 #define MAXIMUM_TASK_DEPENDENCIES 4
 
 enum class EDependencyType : uint8_t { Precede, Succeeds, Conditional };
@@ -368,13 +370,7 @@ public:
 		m_ExecutionDependencies.push_back(ExecutionDependency(DependencyType, dependent, dependency));
 	}
 
-	virtual void Execute() const override
-	{
-		for (const IExecutionNode* executionNode : m_ExecutionNodes)
-		{
-			executionNode->Execute();
-		}
-	}
+	virtual void Execute() const override;
 
 	IExecutionNode* AppendTask(void(*function)())
 	{
@@ -398,6 +394,9 @@ private:
 
 struct SpinLock
 {
+	SpinLock() {}
+	SpinLock(const SpinLock&) {}
+
 	/*
 	TODO: Consider using the PAUSE instruction to avoid blocking other CPU cores sharing the same load-store uint.
 	Refer to the "Reducing load-store unit utilization" section of "Correctly implementing a spinlock in C++" by Erik Rigtorp (https://rigtorp.se/spinlock/).
@@ -441,28 +440,32 @@ public:
 		for (uint32_t i = 0; i < threadCount; ++i)
 		{
 			std::thread worker([](uint32_t threadIndex) {
+				OPTICK_THREAD("Worker");
 				while (true)
 				{
-
 					// std::cout << (std::ostringstream{} << "Thread " << threadIndex << '\n').str();
 					IExecutionNode* executionNode = nullptr;
 
-					m_ExecutionNodesLock.Lock();
 					if (m_ExecutionNodes.size() > 0)
 					{
-						executionNode = std::move(m_ExecutionNodes.front());
-						m_ExecutionNodes.pop_front();
+						m_ExecutionNodesLock.Lock();
+						if (m_ExecutionNodes.size() > 0)
+						{
+							executionNode = std::move(m_ExecutionNodes.front());
+							m_ExecutionNodes.pop_front();
+						}
+						m_ExecutionNodesLock.Unlock();
 					}
-					m_ExecutionNodesLock.Unlock();
 
 					if (executionNode)
 					{
 						std::cout << (std::ostringstream{} << "[" << threadIndex << "] Executing Node | Node: " << reinterpret_cast<void*>(executionNode) << '\n').str();
 						executionNode->Execute();
+						std::this_thread::sleep_for(std::chrono::milliseconds(5));
 					}
 					else
 					{
-						std::this_thread::sleep_for(std::chrono::milliseconds(5));
+						std::this_thread::sleep_for(std::chrono::milliseconds(1));
 					}
 				}
 				}, i);
@@ -481,10 +484,25 @@ public:
 		m_ExecutionNodesLock.Unlock();
 	}
 
+	static void AppendNode(IExecutionNode* executionNode)
+	{
+		m_ExecutionNodesLock.Lock();
+		m_ExecutionNodes.push_back(executionNode);
+		m_ExecutionNodesLock.Unlock();
+	}
+
 private:
 	static std::deque<IExecutionNode*> m_ExecutionNodes;
 	static SpinLock m_ExecutionNodesLock;
 };
+
+void ExecutionGraph::Execute() const
+{
+	for (IExecutionNode* executionNode : m_ExecutionNodes)
+	{
+		ExecutionScheduler::AppendNode(executionNode);
+	}
+}
 
 std::deque<IExecutionNode*> ExecutionScheduler::m_ExecutionNodes = std::deque<IExecutionNode*>();
 SpinLock ExecutionScheduler::m_ExecutionNodesLock = SpinLock();
@@ -494,11 +512,30 @@ SpinLock ExecutionScheduler::m_ExecutionNodesLock = SpinLock();
 class RendererModule
 {
 public:
-	static void BuildSceneData() { std::cout << "RendererModule::BuildSceneData()" << std::endl; }
-	static void BuildCommandBuffers() { std::cout << "RendererModule::BuildCommandBuffers()" << std::endl; }
-	static void RenderScene() { std::cout << (std::ostringstream{} << "RendererModule::RenderScene()" << '\n').str(); }
+	static void BuildSceneData()
+	{
+		OPTICK_EVENT();
+		std::this_thread::sleep_for(std::chrono::milliseconds(30));
+		std::cout << "RendererModule::BuildSceneData()" << std::endl;
+	}
+
+	static void BuildCommandBuffers()
+	{
+		OPTICK_EVENT();
+		std::this_thread::sleep_for(std::chrono::milliseconds(80));
+		std::cout << "RendererModule::BuildCommandBuffers()" << std::endl;
+	}
+
+	static void RenderScene()
+	{
+		OPTICK_EVENT();
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::cout << (std::ostringstream{} << "RendererModule::RenderScene()" << '\n').str();
+	}
+
 	static void QueueNextFrame()
 	{
+		OPTICK_FRAME("MainThread");
 		std::cout << "RendererModule::QueueNextFrame()" << std::endl;
 		ExecutionScheduler::AppendGraph(&m_RendererLoopExecutionGraph);
 	}
