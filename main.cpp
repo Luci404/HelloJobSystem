@@ -172,32 +172,32 @@ int main(int argc, char** argv)
 #pragma region SpinLock
 struct SpinLock
 {*/
-	/*
-	TODO: Consider using the PAUSE instruction to avoid blocking other CPU cores sharing the same load-store uint.
-	Refer to the "Reducing load-store unit utilization" section of "Correctly implementing a spinlock in C++" by Erik Rigtorp (https://rigtorp.se/spinlock/).
-	*/
-	/*void Lock() noexcept
-	{
-		for (;;) {
-			// Optimistically assume the lock is free on the first try
-			if (!m_Lock.exchange(true, std::memory_order_acquire)) {
-				return;
-			}
-			// Wait for lock to be released without generating cache misses
-			while (m_Lock.load(std::memory_order_relaxed));
+/*
+TODO: Consider using the PAUSE instruction to avoid blocking other CPU cores sharing the same load-store uint.
+Refer to the "Reducing load-store unit utilization" section of "Correctly implementing a spinlock in C++" by Erik Rigtorp (https://rigtorp.se/spinlock/).
+*/
+/*void Lock() noexcept
+{
+	for (;;) {
+		// Optimistically assume the lock is free on the first try
+		if (!m_Lock.exchange(true, std::memory_order_acquire)) {
+			return;
 		}
+		// Wait for lock to be released without generating cache misses
+		while (m_Lock.load(std::memory_order_relaxed));
 	}
+}
 
-	bool TryLock() noexcept {
-		// First do a relaxed load to check if lock is free in order to prevent
-		// unnecessary cache misses if someone does while(!try_lock())
-		return !m_Lock.load(std::memory_order_relaxed) && !m_Lock.exchange(true, std::memory_order_acquire);
-	}
+bool TryLock() noexcept {
+	// First do a relaxed load to check if lock is free in order to prevent
+	// unnecessary cache misses if someone does while(!try_lock())
+	return !m_Lock.load(std::memory_order_relaxed) && !m_Lock.exchange(true, std::memory_order_acquire);
+}
 
-	void Unlock() noexcept
-	{
-		m_Lock.store(false, std::memory_order_release);
-	}
+void Unlock() noexcept
+{
+	m_Lock.store(false, std::memory_order_release);
+}
 
 private:
 	std::atomic<bool> m_Lock = { false };
@@ -233,7 +233,7 @@ void TestSpinLock()
 #pragma endregion SpinLock
 
 struct Task
-{	
+{
 	void Execute()
 	{
 		std::cout << "Execute\n";
@@ -296,7 +296,7 @@ int main()
 				task.Execute();
 			}
 
-		
+
 		}
 		}, i);
 
@@ -443,26 +443,26 @@ public:
 			std::thread worker([](uint32_t threadIndex) {
 				while (true)
 				{
-					// std::this_thread::sleep_for(std::chrono::milliseconds(1));
-					
+
 					// std::cout << (std::ostringstream{} << "Thread " << threadIndex << '\n').str();
-					while (m_ExecutionNodes.size() > 0)
+					IExecutionNode* executionNode = nullptr;
+
+					m_ExecutionNodesLock.Lock();
+					if (m_ExecutionNodes.size() > 0)
 					{
-						IExecutionNode* executionNode = nullptr;
+						executionNode = std::move(m_ExecutionNodes.front());
+						m_ExecutionNodes.pop_front();
+					}
+					m_ExecutionNodesLock.Unlock();
 
-						m_ExecutionNodesLock.Lock();
-						if (m_ExecutionNodes.size() > 0)
-						{
-							executionNode = std::move(m_ExecutionNodes.front());
-							m_ExecutionNodes.pop_front();
-						}
-						m_ExecutionNodesLock.Unlock();
-
-						if (executionNode)
-						{
-							std::cout << (std::ostringstream{} << "[" << threadIndex << "] Executing Node | Node: " << reinterpret_cast<void*>(executionNode) << '\n').str();
-							executionNode->Execute();
-						}
+					if (executionNode)
+					{
+						std::cout << (std::ostringstream{} << "[" << threadIndex << "] Executing Node | Node: " << reinterpret_cast<void*>(executionNode) << '\n').str();
+						executionNode->Execute();
+					}
+					else
+					{
+						std::this_thread::sleep_for(std::chrono::milliseconds(5));
 					}
 				}
 				}, i);
